@@ -435,7 +435,7 @@ class SpotifyTray(dbus.service.Object):
 
     @dbus.service.method(SNI_IFACE, in_signature="ii", out_signature="")
     def SecondaryActivate(self, x, y):
-        spotify_window_toggle()
+        mpris_call("PlayPause")
 
     @dbus.service.method(SNI_IFACE, in_signature="is", out_signature="")
     def Scroll(self, delta, orientation):
