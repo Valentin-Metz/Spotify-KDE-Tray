@@ -139,11 +139,13 @@ def mpris_set_prop(prop, value):
 _ART_CACHE = {}
 
 
-def fetch_art_rgba(url, size=32):
+def fetch_art_argb32(url, size=64):
+    """Fetch album art and return (w, h, bytes) in Qt ARGB32 (little-endian
+    BGRA) form, suitable for the SNI IconPixmap property (a(iiay))."""
     if url in _ART_CACHE:
         return _ART_CACHE[url]
     try:
-        from PIL import Image  # noqa
+        from PIL import Image
         import io
     except Exception:
         _ART_CACHE[url] = None
@@ -153,12 +155,22 @@ def fetch_art_rgba(url, size=32):
             data = r.read()
         img = Image.open(io.BytesIO(data)).convert("RGBA")
         img = img.resize((size, size), Image.LANCZOS)
-        _ART_CACHE[url] = (size, size, img.tobytes("raw", "RGBA"))
+        # SNI IconPixmap bytes are network-order (big-endian) ARGB:
+        # Plasma applies ntohl() then reads as QImage::Format_ARGB32,
+        # so we must emit [A, R, G, B] per pixel.
+        rgba = img.tobytes("raw", "RGBA")
+        argb = bytearray(len(rgba))
+        argb[0::4] = rgba[3::4]   # A
+        argb[1::4] = rgba[0::4]   # R
+        argb[2::4] = rgba[1::4]   # G
+        argb[3::4] = rgba[2::4]   # B
+        _ART_CACHE[url] = (size, size, bytes(argb))
         return _ART_CACHE[url]
     except Exception as e:
         log(f"art fetch {url} failed: {e}")
         _ART_CACHE[url] = None
         return None
+
 
 
 # ----------------------------------------------------------------------------
@@ -299,6 +311,8 @@ class SpotifyMenu(dbus.service.Object):
             mpris_set_prop("Shuffle", not t._shuffle)
         elif id == M_LOOP:
             order = ["None", "Playlist", "Track"]
+            cur = t._loop if t._loop in order else "None"
+            new = order[(order.index(cur) + 1) % len(order)]
             mpris_set_prop("LoopStatus", new)
         elif id == M_SHOWHIDE:
             spotify_window_toggle()
@@ -332,7 +346,7 @@ class SpotifyMenu(dbus.service.Object):
         if t._meta.get("title"):
             np = t._meta["title"]
             if t._meta.get("artist"):
-                np = f"{t._meta['artist']} — {t._meta['title']}"
+                np = f"{t._meta['title']} — {t._meta['artist']}"
         elif t._playback == "Stopped":
             np = "Spotify (not playing)"
         else:
@@ -346,7 +360,8 @@ class SpotifyMenu(dbus.service.Object):
             M_ROOT: ({P_CHILDREN_DISPLAY: "submenu"}, [
                 M_NOWPLAYING, M_PREV, M_PLAYPAUSE, M_NEXT,
                 M_SEP2, M_SHUFFLE, M_LOOP, M_SEP3, M_SHOWHIDE, M_QUIT]),
-            M_NOWPLAYING: ({P_LABEL: np, P_ENABLED: False}, []),
+            M_NOWPLAYING: ({P_LABEL: np, P_ICON_NAME: "view-media-playlist",
+                            P_ENABLED: False}, []),
             M_PREV: ({P_LABEL: "Previous",
                       P_ICON_NAME: "media-skip-backward-symbolic",
                       P_ENABLED: t._can_control}, []),
@@ -358,10 +373,12 @@ class SpotifyMenu(dbus.service.Object):
                       P_ENABLED: t._can_control}, []),
             M_SEP2: ({P_TYPE: TYPE_SEPARATOR}, []),
             M_SHUFFLE: ({P_LABEL: "Shuffle",
+                         P_ICON_NAME: "media-playlist-shuffle-symbolic",
                          P_TOGGLE_TYPE: "checkmark",
                          P_TOGGLE_STATE: dbus.Int32(1 if t._shuffle else 0),
                          P_ENABLED: t._can_control}, []),
             M_LOOP: ({P_LABEL: loop_label,
+                      P_ICON_NAME: "media-playlist-repeat-symbolic",
                       P_TOGGLE_TYPE: "checkmark",
                       P_TOGGLE_STATE: dbus.Int32(1 if t._loop != "None" else 0),
                       P_ENABLED: t._can_control}, []),
@@ -437,6 +454,9 @@ class SpotifyTray(dbus.service.Object):
     def NewIcon(self):
         pass
 
+    @dbus.service.signal(SNI_IFACE, signature="")
+    def NewToolTip(self):
+        pass
     @dbus.service.signal(SNI_IFACE, signature="s")
     def NewStatus(self, status):
         pass
@@ -445,14 +465,66 @@ class SpotifyTray(dbus.service.Object):
     def NewTitle(self):
         pass
 
+    def _icon_name(self):
+        # Fall back to the themed icon when no album art is available so
+        # the tray still shows something (e.g. when paused/stopped).
+        return "" if self._art_bytes else ICON_NAME
+
+    def _icon_pixmap(self):
+        # SNI IconPixmap: a(iiay) — (width, height, ARGB32 bytes).
+        if not self._art_bytes:
+            return dbus.Array(signature="(iiay)")
+        w, h, raw = self._art_bytes
+        barr = dbus.Array([dbus.Byte(b) for b in raw], signature="y")
+        return dbus.Array(
+            [dbus.Struct((dbus.Int32(w), dbus.Int32(h), barr))],
+            signature="(iiay)")
+
+    def _tooltip(self):
+        # SNI ToolTip: (icon_name, image_pixmap, title, subtitle) —
+        # Plasma renders this on hover. Title is "Spotify" (stable sort
+        # key); subtitle carries the now-playing info.
+        if t := self._meta.get("title"):
+            artist = self._meta.get("artist") or ""
+            sub = f"{t} — {artist}" if artist else t
+        else:
+            sub = "Not playing"
+        return dbus.Struct(("",
+                            dbus.Array(signature="(iiay)"),
+                            "Spotify",
+                            sub),
+                           signature="sa(iiay)ss")
+
+    def _notify_tooltip_change(self):
+        def _notify():
+            self.NewToolTip()
+            self.PropertiesChanged(
+                SNI_IFACE, {"ToolTip": self._tooltip()}, [])
+            return False
+        GLib.idle_add(_notify)
+
+    def _notify_icon_change(self):
+        def _notify():
+            self.NewIcon()
+            self.NewToolTip()
+            self.PropertiesChanged(
+                SNI_IFACE,
+                {"IconPixmap": self._icon_pixmap(),
+                 "IconName": self._icon_name(),
+                 "ToolTip": self._tooltip()},
+                [])
+            return False
+        GLib.idle_add(_notify)
     # ---- Properties ----
     def _props(self):
         return {
             "Id": "spotify-client",
             "Category": "ApplicationStatus",
+            "IconName": self._icon_name(),
+            "IconPixmap": self._icon_pixmap(),
             "Status": "Active",
-            "IconName": ICON_NAME,
             "IconAccessibleDesc": "",
+            "ToolTip": self._tooltip(),
             "AttentionIconName": "",
             "AttentionAccessibleDesc": "",
             "Title": "Spotify",
@@ -490,12 +562,13 @@ class SpotifyTray(dbus.service.Object):
             self._can_control = False
             self._meta = {}
             self._art_bytes = None
+            self._notify_icon_change()
             return
-        self._playback = str(player.get("PlaybackStatus", "Stopped"))
         self._shuffle = bool(player.get("Shuffle", False))
         self._loop = str(player.get("LoopStatus", "None"))
         self._can_control = bool(player.get("CanControl", False))
         meta = dict(player.get("Metadata", {}))
+        self._playback = str(player.get("PlaybackStatus", "Stopped"))
         title = _as_str(meta.get("xesam:title", ""))
         art = meta.get("xesam:artist", [])
         artist = ", ".join(_as_str(a) for a in art) if art else ""
@@ -503,24 +576,24 @@ class SpotifyTray(dbus.service.Object):
         arturl = _as_str(meta.get("mpris:artUrl", ""))
         self._meta = {"title": title, "artist": artist,
                       "album": album, "artUrl": arturl}
+        self._notify_tooltip_change()
         if arturl:
             threading.Thread(target=self._fetch_art_thread,
                              args=(arturl,), daemon=True).start()
         else:
             self._art_bytes = None
+            self._notify_icon_change()
 
     def _fetch_art_thread(self, url):
-        self._art_bytes = fetch_art_rgba(url)
-        if self._menu_obj:
-            self._menu_obj.bump()
+        self._art_bytes = fetch_art_argb32(url)
+        self._notify_icon_change()
+
     def _refresh_window_state(self):
         new_state = spotify_window_state()
         if new_state != self._window_state:
             self._window_state = new_state
             if self._menu_obj:
                 self._menu_obj.bump()
-
-
 # ----------------------------------------------------------------------------
 # MPRIS PropertiesChanged listener
 # ----------------------------------------------------------------------------

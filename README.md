@@ -1,6 +1,6 @@
 # Spotify KDE Tray Proxy
 
-Makes the Spotify Flatpak's tray icon **left-click to collapse/restore the window** on KDE Plasma (Wayland), instead of opening its context menu. Middle-click toggles play/pause. Right-click opens a small media-player controller.
+Makes the Spotify Flatpak's tray icon **left-click to collapse/restore the window** on KDE Plasma (Wayland), instead of opening its context menu. The tray icon shows the current track's album cover; hovering shows "Spotify | track — artist". Middle-click toggles play/pause. Right-click opens a small media-player controller.
 
 ## Why this exists
 
@@ -20,7 +20,7 @@ This proxy fixes that by registering its own KDE-spec SNI. It **implements `Acti
 
 Two components cooperate over D-Bus:
 
-1. **`spotify-tray-proxy.py`** — A Python D-Bus daemon that registers as a `StatusNotifierItem` (well-known bus name `org.feuerdevil.SpotifyTray`, object path `/StatusNotifierItem`, `Id=spotify-client`). On left-click it queues a toggle command to the KWin script; on middle-click it calls MPRIS `PlayPause`. Its right-click `com.canonical.dbusmenu` menu (at `/StatusNotifierItem/Menu`) is a media controller driven by MPRIS (`org.mpris.MediaPlayer2.spotify`): now-playing, previous/play-pause/next, shuffle, loop, show/hide, quit.
+1. **`spotify-tray-proxy.py`** — A Python D-Bus daemon that registers as a `StatusNotifierItem` (well-known bus name `org.feuerdevil.SpotifyTray`, object path `/StatusNotifierItem`, `Id=spotify-client`, `Category=ApplicationStatus`). On left-click it queues a toggle command to the KWin script; on middle-click it calls MPRIS `PlayPause`. Its right-click `com.canonical.dbusmenu` menu (at `/StatusNotifierItem/Menu`) is a media controller driven by MPRIS (`org.mpris.MediaPlayer2.spotify`): now-playing (with `view-media-playlist` icon), previous/play-pause/next, shuffle (`media-playlist-shuffle-symbolic`), loop (`media-playlist-repeat-symbolic`), toggle tray, quit. The tray icon itself is the current track's album cover, fetched from `mpris:artUrl`, resized to 64×64, and served as the SNI `IconPixmap` (ARGB32, big-endian per the KDE SNI spec — Plasma applies `ntohl()` then reads as `QImage::Format_ARGB32`). The `ToolTip` property carries `title="Spotify"` and `subtitle="track — artist"`, updated live via `NewToolTip`/`PropertiesChanged` on metadata change.
 
 2. **KWin script `spotify-toggle`** — A Plasma 6 KWin JavaScript package that polls the daemon every 50 ms via a `QTimer` (setInterval is unavailable in KWin's QtScript engine). The daemon cannot manipulate Wayland-native windows directly (KWin has no D-Bus method to minimize/restore by window class), so this script runs *inside* KWin where it has `workspace.windowList()` access. It reports the Spotify window's live state (visible / minimized / absent) and pulls queued commands to set `window.minimized` and `window.skipTaskbar` (tray-only when minimized), moving the window to the current virtual desktop on restore.
 
@@ -43,6 +43,7 @@ On Plasma 6 Wayland, KWin's scripting `loadScript`/`start` D-Bus path does **not
 - KDE Plasma 6 (Wayland) — tested on Plasma 6.7 / Fedora 44
 - Spotify Flatpak (`com.spotify.Client`)
 - `python3-dbus`, `python3-gobject` (PyGObject) — present by default on KDE installs
+- `python3-pillow` (PIL) — for album art resizing; `pip install pillow` or `dnf install python3-pillow`
 - `kdotool`/`wmctrl` are **not** required (Spotify is Wayland-native, invisible to X11 tools)
 
 ## Install
@@ -139,7 +140,7 @@ If the hot-reload doesn't take (the daemon stops receiving `ReportState` polls �
 - **Loop cycle order** matches the Spotify UI: Off → Album → Track.
 - **MPRIS `Raise()`** is the fallback when the daemon sees no window state (e.g. before the KWin script's first poll arrives).
 
+- **Tray icon position:** Plasma sorts tray icons by `Category` (fixed enum order: `UnknownCategory` → `ApplicationStatus` → `Communications` → ...) then alphabetically by `Title` within category. `XAyatanaOrderingIndex` is **ignored** by Plasma 6. Our `Category=ApplicationStatus` and `Title="Spotify"` pin the position. If `Category` is omitted, the icon falls into `UnknownCategory` and jumps to the first tray slot.
 ## Known limitations
-
-- Album art in the menu (`icon-data`) is not yet rendering — the dbusmenu RGBA struct format needs verification. The now-playing row carries the slot for it.
+- Album art is served only as the tray `IconPixmap` (cover art as the icon), not inside the right-click menu — Plasma's `libdbusmenuqt` renderer is a plain `QMenu` with no cover-art banner concept. The now-playing row uses a `view-media-playlist` icon instead.
 - KWin scripts cannot be reliably hot-reloaded in a running session; changes to `main.js` may require a relog to take effect.
