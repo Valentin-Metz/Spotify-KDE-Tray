@@ -139,8 +139,8 @@ If the hot-reload doesn't take (the daemon stops receiving `ReportState` polls �
 - **Tray-only minimize:** while minimized, the window is hidden from the taskbar (`skipTaskbar`), mirroring Spotify's own "Minimize to Tray" semantics. On restore, `skipTaskbar` is cleared and the window moves to the current virtual desktop.
 - **Loop cycle order** matches the Spotify UI: Off → Album → Track.
 - **MPRIS `Raise()`** is the fallback when the daemon sees no window state (e.g. before the KWin script's first poll arrives).
-
 - **Tray icon position:** Plasma sorts tray icons by `Category` (fixed enum order: `UnknownCategory` → `ApplicationStatus` → `Communications` → ...) then alphabetically by `Title` within category. `XAyatanaOrderingIndex` is **ignored** by Plasma 6. Our `Category=ApplicationStatus` and `Title="Spotify"` pin the position. If `Category` is omitted, the icon falls into `UnknownCategory` and jumps to the first tray slot.
+
 ## Known limitations
 - Album art is served only as the tray `IconPixmap` (cover art as the icon), not inside the right-click menu — Plasma's `libdbusmenuqt` renderer is a plain `QMenu` with no cover-art banner concept. The now-playing row uses a `view-media-playlist` icon instead.
 - KWin scripts cannot be reliably hot-reloaded in a running session; changes to `main.js` may require a relog to take effect.
