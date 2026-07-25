@@ -329,13 +329,6 @@ class SpotifyMenu(dbus.service.Object):
         playpause_icon = ("media-playback-pause-symbolic" if playing
                           else "media-playback-start-symbolic")
 
-        art_prop = {}
-        if t._art_bytes:
-            w, h, raw = t._art_bytes
-            barr = dbus.Array([dbus.Byte(b) for b in raw], signature="y")
-            art_prop[P_ICON_DATA] = dbus.Struct(
-                (dbus.Int32(w), dbus.Int32(h), dbus.Int32(w * 4),
-                 True, 8, 4, barr))
 
         if t._meta.get("title"):
             np = t._meta["title"]
@@ -358,7 +351,7 @@ class SpotifyMenu(dbus.service.Object):
             M_ROOT: ({P_CHILDREN_DISPLAY: "submenu"}, [
                 M_NOWPLAYING, M_SEP1, M_PREV, M_PLAYPAUSE, M_NEXT,
                 M_SEP2, M_SHUFFLE, M_LOOP, M_SEP3, M_SHOWHIDE, M_QUIT]),
-            M_NOWPLAYING: ({**art_prop, P_LABEL: np, P_ENABLED: False}, []),
+            M_NOWPLAYING: ({P_LABEL: np, P_ENABLED: False}, []),
             M_PREV: ({P_LABEL: "Previous",
                       P_ICON_NAME: "media-skip-backward-symbolic",
                       P_ENABLED: t._can_control}, []),
