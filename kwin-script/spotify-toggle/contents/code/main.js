@@ -103,7 +103,7 @@ var SpotifyToggle = (function () {
 })();
 
 var spotifyToggleTimer = new QTimer();
-spotifyToggleTimer.interval = 100;
+spotifyToggleTimer.interval = 50;
 spotifyToggleTimer.timeout.connect(SpotifyToggle.poll);
 spotifyToggleTimer.start();
 console.info("spotify-toggle: script started");
