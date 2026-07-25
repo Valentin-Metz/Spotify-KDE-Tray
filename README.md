@@ -53,8 +53,8 @@ cp kwin-script/spotify-toggle/contents/code/main.js ~/.local/share/kwin/scripts/
 
 # Enable the KWin script
 kwriteconfig6 --file kwinrc --group Plugins --key spotify-toggleEnabled true
+flatpak override --user --no-talk-name=org.kde.StatusNotifierWatcher com.spotify.Client
 ```
-
 Then **log out and back in** (or reboot). KWin only auto-runs enabled script packages at startup; hot-reloading a script in a running session is unreliable.
 
 After login, launch Spotify normally. A single Spotify tray icon should appear; left-clicking it toggle-minimizes the window (hidden from the taskbar while minimized), and right-click opens the media controller.
@@ -66,12 +66,10 @@ After login, launch Spotify normally. A single Spotify tray icon should appear; 
 | `spotify-tray-proxy.py` | `~/.local/bin/` | Tray SNI daemon + DBus menu (MPRIS-driven) |
 | `kwin-script/spotify-toggle/` | `~/.local/share/kwin/scripts/spotify-toggle/` | KWin script: window toggle/minimize/restore |
 | `autostart/spotify-tray-proxy.desktop` | `~/.config/autostart/` | Launch the daemon at login |
-| `applications/com.spotify.Client.desktop` | `~/.local/share/applications/` | Overlay: launching Spotify also starts the proxy |
-| `bin/spotify-launch-with-proxy.sh` | `~/.local/bin/` | Shell wrapper used by the launcher overlay |
-
 ## Notes
 
-- **Dedup:** the proxy registers with `Id=spotify-client`, matching Spotify's own Ayatana SNI. Plasma keys tray items by `Id` (last-registered wins), so only the proxy's icon shows.
+- **Single icon:** Spotify's Flatpak normally registers its own Ayatana SNI (the one lacking `Activate`). The `flatpak override --no-talk-name=org.kde.StatusNotifierWatcher` step revokes Spotify's session-bus access to the SNI watcher, so it can no longer register its icon — leaving only the proxy's. Plasma does not dedup by `Id`; the override is required to avoid a duplicate.
+
 - **Tray-only minimize:** while minimized, the window is hidden from the taskbar (`skipTaskbar`), mirroring Spotify's own "Minimize to Tray" semantics. On restore, `skipTaskbar` is cleared and the window moves to the current virtual desktop.
 - **Loop cycle order** matches the Spotify UI: Off → Album → Track.
 - **MPRIS `Raise()`** is the fallback when the daemon sees no window state (e.g. before the KWin script's first poll arrives).
