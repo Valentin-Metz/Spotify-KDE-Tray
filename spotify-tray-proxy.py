@@ -56,7 +56,6 @@ P_CHILDREN_DISPLAY = "children-display"
 M_ROOT = 0
 M_ART = 1
 M_NOWPLAYING = 2
-M_SEP1 = 3
 M_PREV = 4
 M_PLAYPAUSE = 5
 M_NEXT = 6
@@ -345,7 +344,7 @@ class SpotifyMenu(dbus.service.Object):
 
         return {
             M_ROOT: ({P_CHILDREN_DISPLAY: "submenu"}, [
-                M_NOWPLAYING, M_SEP1, M_PREV, M_PLAYPAUSE, M_NEXT,
+                M_NOWPLAYING, M_PREV, M_PLAYPAUSE, M_NEXT,
                 M_SEP2, M_SHUFFLE, M_LOOP, M_SEP3, M_SHOWHIDE, M_QUIT]),
             M_NOWPLAYING: ({P_LABEL: np, P_ENABLED: False}, []),
             M_PREV: ({P_LABEL: "Previous",
