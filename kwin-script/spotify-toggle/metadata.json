@@ -1,0 +1,12 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Description": "Exposes D-Bus methods to minimize, restore, and query the Spotify window for the Spotify Tray Proxy.",
+        "Icon": "com.spotify.Client",
+        "Id": "spotify-toggle",
+        "License": "MIT",
+        "Name": "Spotify Toggle"
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js"
+}

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Spotify
+GenericName=Music Player
+Comment=Play music from Spotify. Tray icon toggles the window on left-click.
+Icon=com.spotify.Client
+Exec=spotify-launch-with-proxy.sh %U
+Terminal=false
+MimeType=x-scheme-handler/spotify;
+Categories=Audio;Music;Player;AudioVideo;
+StartupWMClass=spotify
+X-GNOME-UsesNotifications=true
+X-Flatpak-Tags=proprietary;
+X-Flatpak=com.spotify.Client

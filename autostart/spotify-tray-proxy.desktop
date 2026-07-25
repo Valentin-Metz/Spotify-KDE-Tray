@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Spotify Tray Proxy
+Comment=Toggles the Spotify window from the tray icon on left-click
+Exec=/home/feuermagier/.local/bin/spotify-tray-proxy.py
+Icon=com.spotify.Client
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+X-GNOME-Autostart-enabled=true
+OnlyShowIn=KDE;
