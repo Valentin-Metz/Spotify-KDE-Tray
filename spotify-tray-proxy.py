@@ -305,6 +305,9 @@ class SpotifyMenu(dbus.service.Object):
             spotify_window_toggle()
         elif id == M_QUIT:
             mpris_quit()
+            # Exit the proxy too so the tray icon disappears; autostart
+            # (or the launcher wrapper) restarts it next time.
+            GLib.idle_add(lambda: (os._exit(0), False)[1])
         # MPRIS PropertiesChanged (or the state poll) drives menu refreshes;
         # do NOT bump here — it causes re-render loops that swallow clicks.
 
