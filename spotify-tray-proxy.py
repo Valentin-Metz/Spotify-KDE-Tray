@@ -339,11 +339,7 @@ class SpotifyMenu(dbus.service.Object):
         else:
             np = "Spotify"
 
-        showhide_label = {
-            "visible": "Minimize to Tray",
-            "minimized": "Show Spotify",
-            "absent": "Show Spotify",
-        }.get(t._window_state, "Show Spotify")
+        showhide_label = "Toggle Tray"
 
         loop_label = LOOP_LABELS.get(t._loop, "Loop: Off")
 
