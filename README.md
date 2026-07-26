@@ -99,8 +99,12 @@ Edit `spotify-tray-proxy.py` in the repo, then copy out and restart:
 
 ```sh
 cp spotify-tray-proxy.py ~/.local/bin/spotify-tray-proxy.py
-# kill the old instance and relaunch
-```
+# Kill the old instance (pkill sends SIGTERM, which the daemon handles
+# cleanly now — it releases its D-Bus bus names and exits). A
+# single-instance guard also prevents duplicate ghost processes.
+pkill -f spotify-tray-proxy.py
+# Relaunch (or log out/in; autostart brings it up at session start):
+python3 ~/.local/bin/spotify-tray-proxy.py &
 
 The daemon does not need KWin or a relog; a process restart picks up changes immediately. Check the logs via `journalctl --user` or run it in a terminal for stderr.
 
