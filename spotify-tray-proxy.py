@@ -318,9 +318,11 @@ class SpotifyMenu(dbus.service.Object):
             spotify_window_toggle()
         elif id == M_QUIT:
             mpris_quit()
-            # Exit the proxy too so the tray icon disappears; autostart
-            # (or the launcher wrapper) restarts it next time.
-            GLib.idle_add(lambda: (os._exit(0), False)[1])
+            # Exit the proxy cleanly so the tray icon disappears and D-Bus
+            # bus names are released. loop.quit() lets the MainLoop unwind
+            # and Python exit normally (vs os._exit which leaks the names).
+            mainloop = self.tray._mainloop
+            GLib.idle_add(lambda: mainloop.quit())
         # MPRIS PropertiesChanged (or the state poll) drives menu refreshes;
         # do NOT bump here — it causes re-render loops that swallow clicks.
 
@@ -408,9 +410,9 @@ class SpotifyMenu(dbus.service.Object):
 # ----------------------------------------------------------------------------
 class SpotifyTray(dbus.service.Object):
     OBJ_PATH = "/StatusNotifierItem"
-
-    def __init__(self, bus):
+    def __init__(self, bus, mainloop=None):
         self.bus = bus
+        self._mainloop = mainloop
         # Cached MPRIS state
         self._meta = {}
         self._playback = "Stopped"
@@ -628,6 +630,26 @@ class MprisWatcher:
 def main():
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SessionBus()
+
+    # Single-instance guard: exit immediately if another proxy is already
+    # running. Without this, a failed BusName acquisition leaves a ghost
+    # process spinning in the MainLoop (invisible on D-Bus, eating CPU).
+    try:
+        name_owner = bus.call_blocking(
+            "org.freedesktop.DBus", "/org/freedesktop/DBus",
+            "org.freedesktop.DBus", "GetNameOwner",
+            "s", [TRAY_BUS_NAME])
+    except dbus.exceptions.DBusException as e:
+        if e.get_dbus_name() == "org.freedesktop.DBus.Error.NameHasNoOwner":
+            name_owner = None
+        else:
+            raise
+    if name_owner:
+        log(f"{TRAY_BUS_NAME} already owned by {name_owner}; exiting")
+        return
+
+    loop = GLib.MainLoop()
+
     # Retain references: BusName releases the name when its Python object
     # is garbage-collected, so the wrappers must live for the process lifetime.
     name_tray = dbus.service.BusName(TRAY_BUS_NAME, bus,
@@ -639,15 +661,23 @@ def main():
                                        allow_replacement=True,
                                        do_not_queue=True)
     SpotifyToggleCallback(bus)
-    tray = SpotifyTray(bus)
+    tray = SpotifyTray(bus, loop)
     MprisWatcher(tray)
     tray.refresh_mpris()
     # Periodic window-state refresh so the Show/Minimize label stays current.
     def _tick():
         tray._refresh_window_state()
     GLib.timeout_add_seconds(1, _tick)
+
+    # Clean exit on SIGTERM/SIGINT so pkill (without -9) releases bus names.
+    import signal
+    def _on_signal(sig, frame):
+        loop.quit()
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
+
     log("Spotify Tray Proxy running")
-    GLib.MainLoop().run()
+    loop.run()
 
 
 if __name__ == "__main__":
