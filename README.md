@@ -36,11 +36,11 @@ The KWin script calls the daemon on `org.feuerdevil.SpotifyToggle` at `/SpotifyT
 
 ### Why the polling bridge (and the small delay)
 
-On Plasma 6 Wayland, KWin's scripting `loadScript`/`start` D-Bus path does **not** execute ad-hoc scripts in a running session, and KWin has no D-Bus method to minimize a specific window. The only reliable, no-recompile mechanism is a *persistent* KWin script (installed package, auto-run at KWin start) that polls the daemon. At 50 ms this adds up to ~50 ms of latency on click — imperceptible in practice. Installed KWin scripts auto-run reliably on login; hot-reloading them in a running session is flaky (the `QTimer` often dies).
+KWin has no D-Bus method to minimize a specific window, and KWin scripts cannot export D-Bus methods for the daemon to call. The no-recompile mechanism is a *persistent* KWin script (installed package, auto-run at KWin start) that polls the daemon. At 50 ms this adds up to ~50 ms of latency on click — imperceptible in practice. Installed KWin scripts auto-run reliably on login; hot-reloading them in a running session is flaky (the `QTimer` often dies).
 
 ## Requirements
 
-- KDE Plasma 6 (Wayland) — tested on Plasma 6.7 / Fedora 44
+- KDE Plasma 6 (Wayland) — tested on Plasma 6.7 / Fedora 44 and Plasma 6.8 / Fedora 45
 - Spotify Flatpak (`com.spotify.Client`)
 - `python3-dbus`, `python3-gobject` (PyGObject) — present by default on KDE installs
 - `python3-pillow` (PIL) — for album art resizing; `pip install pillow` or `dnf install python3-pillow`
@@ -141,6 +141,7 @@ If the hot-reload doesn't take (the daemon stops receiving `ReportState` polls �
 
 - **Single icon:** Spotify's Flatpak normally registers its own Ayatana SNI (the one lacking `Activate`). The `flatpak override --no-talk-name=org.kde.StatusNotifierWatcher` step revokes Spotify's session-bus access to the SNI watcher, so it can no longer register its icon — leaving only the proxy's. Plasma does not dedup by `Id`; the override is required to avoid a duplicate.
 - **Tray-only minimize:** while minimized, the window is hidden from the taskbar (`skipTaskbar`), mirroring Spotify's own "Minimize to Tray" semantics. On restore, `skipTaskbar` is cleared and the window moves to the current virtual desktop.
+- **Window matching:** the KWin script finds the Spotify window by `resourceClass`, `resourceName` or `desktopFileName` equal to `spotify` or `com.spotify.Client` (case-insensitive). Spotify ≥ 1.2.95 sets its Wayland app_id to `com.spotify.Client` (empty `resourceName`); older builds used `spotify`. If the toggle stops working after a Spotify update and the daemon receives `ReportState(…, "absent")` while Spotify is open, the app_id changed again — dump `resourceClass`/`desktopFileName` of all windows from a KWin script to find the new one.
 - **Loop cycle order** matches the Spotify UI: Off → Album → Track.
 - **MPRIS `Raise()`** is the fallback when the daemon sees no window state (e.g. before the KWin script's first poll arrives).
 - **Tray icon position:** Plasma sorts tray icons by `Category` (fixed enum order: `UnknownCategory` → `ApplicationStatus` → `Communications` → ...) then alphabetically by `Title` within category. `XAyatanaOrderingIndex` is **ignored** by Plasma 6. Our `Category=ApplicationStatus` and `Title="Spotify"` pin the position. If `Category` is omitted, the icon falls into `UnknownCategory` and jumps to the first tray slot.

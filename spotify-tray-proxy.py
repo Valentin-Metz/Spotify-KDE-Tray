@@ -11,12 +11,9 @@ implement Activate(); KDE Plasma's system tray therefore falls back to opening
 Spotify's context menu on left-click, instead of toggling the window.
 """
 
-import os
 import sys
-import time
 import urllib.request
 import threading
-import tempfile
 
 import dbus
 import dbus.service
@@ -28,7 +25,6 @@ from gi.repository import GLib
 # ----------------------------------------------------------------------------
 SPOTIFY_MPRIS_NAME = "org.mpris.MediaPlayer2.spotify"
 SPOTIFY_MPRIS_PATH = "/org/mpris/MediaPlayer2"
-SPOTIFY_RESOURCE_CLASS = "spotify"
 
 SNI_IFACE = "org.kde.StatusNotifierItem"
 SNI_WATCHER_NAME = "org.kde.StatusNotifierWatcher"
@@ -46,7 +42,6 @@ TYPE_SEPARATOR = "separator"
 P_LABEL = "label"
 P_TYPE = "type"
 P_ICON_NAME = "icon-name"
-P_ICON_DATA = "icon-data"
 P_TOGGLE_TYPE = "toggle-type"
 P_TOGGLE_STATE = "toggle-state"
 P_ENABLED = "enabled"
@@ -54,7 +49,6 @@ P_CHILDREN_DISPLAY = "children-display"
 
 # Menu item ids
 M_ROOT = 0
-M_ART = 1
 M_NOWPLAYING = 2
 M_PREV = 4
 M_PLAYPAUSE = 5
@@ -176,28 +170,11 @@ def fetch_art_argb32(url, size=64):
 # ----------------------------------------------------------------------------
 # Window management: the daemon exposes a D-Bus object that the installed
 # KWin script (spotify-toggle) polls. The daemon queues commands and reads
-# back reported state. This is the only reliable mechanism on Plasma 6
-# Wayland, where KWin's Scripting.loadScript/start DBus path does not
-# execute ad-hoc scripts in a running session.
+# back reported state. KWin has no D-Bus method to minimize/restore a given
+# window and KWin scripts cannot export D-Bus methods, so the script pulls.
 # ----------------------------------------------------------------------------
-_pending_command = None      # queued command string: minimize|restore|toggle
+_pending_command = None      # queued command string: minimize|restore
 _last_reported_state = "absent"
-_command_result = None       # last CommandDone result
-
-
-def spotify_window_state():
-    """Return the most recently reported window state."""
-    return _last_reported_state
-
-
-def spotify_window_minimize():
-    global _pending_command
-    _pending_command = "minimize"
-
-
-def spotify_window_restore():
-    global _pending_command
-    _pending_command = "restore"
 
 
 def spotify_window_toggle():
@@ -237,8 +214,6 @@ class SpotifyToggleCallback(dbus.service.Object):
     @dbus.service.method("org.feuerdevil.SpotifyToggle",
                          in_signature="s", out_signature="")
     def CommandDone(self, result):
-        global _command_result
-        _command_result = str(result)
         # If restore reported "raise", no window existed; surface via MPRIS.
         if result == "raise":
             mpris_raise()
@@ -273,7 +248,6 @@ class SpotifyMenu(dbus.service.Object):
                          out_signature="u(ia{sv}av)")
     def GetLayout(self, parent_id, recursion_depth, property_names):
         layout = self._build_layout()
-        node = layout.get(parent_id, ({}, []))
         return dbus.UInt32(self._revision), self._serialize_node(
             layout, parent_id, recursion_depth)
 
@@ -354,8 +328,6 @@ class SpotifyMenu(dbus.service.Object):
         else:
             np = "Spotify"
 
-        showhide_label = "Toggle Tray"
-
         loop_label = LOOP_LABELS.get(t._loop, "Loop: Off")
 
         return {
@@ -385,7 +357,7 @@ class SpotifyMenu(dbus.service.Object):
                       P_TOGGLE_STATE: dbus.Int32(1 if t._loop != "None" else 0),
                       P_ENABLED: t._can_control}, []),
             M_SEP3: ({P_TYPE: TYPE_SEPARATOR}, []),
-            M_SHOWHIDE: ({P_LABEL: showhide_label,
+            M_SHOWHIDE: ({P_LABEL: "Toggle Tray",
                           P_ICON_NAME: "go-jump-symbolic"}, []),
             M_QUIT: ({P_LABEL: "Quit Spotify",
                       P_ICON_NAME: "application-exit-symbolic"}, []),
@@ -419,14 +391,11 @@ class SpotifyTray(dbus.service.Object):
         self._shuffle = False
         self._loop = "None"
         self._can_control = False
-        self._window_state = "absent"
         self._art_bytes = None
         self._menu_obj = None  # set below
         super().__init__(bus, self.OBJ_PATH)
         self._menu_obj = SpotifyMenu(bus, self)
         self._register()
-        # Refresh window state in the background periodically for the menu.
-        self._refresh_window_state()
 
     def _register(self):
         try:
@@ -590,12 +559,6 @@ class SpotifyTray(dbus.service.Object):
         self._art_bytes = fetch_art_argb32(url)
         self._notify_icon_change()
 
-    def _refresh_window_state(self):
-        new_state = spotify_window_state()
-        if new_state != self._window_state:
-            self._window_state = new_state
-            if self._menu_obj:
-                self._menu_obj.bump()
 # ----------------------------------------------------------------------------
 # MPRIS PropertiesChanged listener
 # ----------------------------------------------------------------------------
@@ -664,10 +627,6 @@ def main():
     tray = SpotifyTray(bus, loop)
     MprisWatcher(tray)
     tray.refresh_mpris()
-    # Periodic window-state refresh so the Show/Minimize label stays current.
-    def _tick():
-        tray._refresh_window_state()
-    GLib.timeout_add_seconds(1, _tick)
 
     # Clean exit on SIGTERM/SIGINT so pkill (without -9) releases bus names.
     import signal

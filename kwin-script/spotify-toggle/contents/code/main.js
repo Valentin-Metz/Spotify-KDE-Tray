@@ -13,7 +13,7 @@
  *   - callDBus without a callback silently fails to deliver on some setups;
  *     pass a no-op callback to force delivery.
  *
- * Polls the tray proxy daemon every 250ms. The daemon queues toggle commands
+ * Polls the tray proxy daemon every 50ms. The daemon queues toggle commands
  * based on the reported state; this script pulls and executes them.
  *
  * Reload after edits without restarting KWin:
@@ -28,14 +28,22 @@ var SpotifyToggle = (function () {
     var PATH = "/SpotifyToggle";
     var IFACE = "org.feuerdevil.SpotifyToggle";
 
+    // Older Spotify builds report resourceClass/resourceName "spotify"; since
+    // 1.2.95 the Flatpak sets the Wayland app_id to "com.spotify.Client"
+    // (resourceClass and desktopFileName) with an empty resourceName.
+    function isSpotify(c) {
+        var ids = [c.resourceClass, c.resourceName, c.desktopFileName];
+        for (var i = 0; i < ids.length; i++) {
+            var id = String(ids[i] || "").toLowerCase();
+            if (id === "spotify" || id === "com.spotify.client") return true;
+        }
+        return false;
+    }
+
     function findSpotify() {
         var list = workspace.windowList ? workspace.windowList() : workspace.clientList();
         for (var i = 0; i < list.length; i++) {
-            var c = list[i];
-            if (String(c.resourceClass || "").toLowerCase() === "spotify" ||
-                String(c.resourceName || "").toLowerCase() === "spotify") {
-                return c;
-            }
+            if (isSpotify(list[i])) return list[i];
         }
         return null;
     }
@@ -51,35 +59,30 @@ var SpotifyToggle = (function () {
         catch (e) {}
     }
 
+    function minimize(c) {
+        c.minimized = true;
+        c.skipTaskbar = true;
+        done("minimized");
+    }
+
+    function restore(c) {
+        c.skipTaskbar = false;
+        c.minimized = false;
+        try { c.desktops = [workspace.currentDesktop]; } catch (e) {}
+        try { workspace.activeWindow = c; } catch (e) {}
+        done("visible");
+    }
+
     function handleCommand(cmd) {
         var c = findSpotify();
         if (cmd === "minimize") {
-            if (c) {
-                c.minimized = true;
-                c.skipTaskbar = true;
-                done("minimized");
-            } else { done("absent"); }
+            if (c) minimize(c); else done("absent");
         } else if (cmd === "restore") {
-            if (c) {
-                c.skipTaskbar = false;
-                c.minimized = false;
-                try { c.desktops = [workspace.currentDesktop]; } catch (e2) {}
-                try { workspace.activeWindow = c; } catch (e) {}
-                done("visible");
-            } else { done("raise"); }
+            if (c) restore(c); else done("raise");
         } else if (cmd === "toggle") {
-            if (!c) { done("raise"); return; }
-            if (c.minimized) {
-                c.skipTaskbar = false;
-                c.minimized = false;
-                try { c.desktops = [workspace.currentDesktop]; } catch (e2) {}
-                try { workspace.activeWindow = c; } catch (e) {}
-                done("visible");
-            } else {
-                c.minimized = true;
-                c.skipTaskbar = true;
-                done("minimized");
-            }
+            if (!c) done("raise");
+            else if (c.minimized) restore(c);
+            else minimize(c);
         }
     }
 
